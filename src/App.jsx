@@ -1,10 +1,34 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 
 // ─── Costanti ────────────────────────────────────────────────────────────────
-const MONTHS = [
+// Nomi base dei mesi (senza anno) — usati nell'UI
+const MONTH_NAMES = [
   "Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno",
   "Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre",
 ];
+
+// Genera le chiavi mese per un dato anno, es. "Gennaio '26"
+function monthsForYear(year) {
+  const yy = String(year).slice(-2);
+  return MONTH_NAMES.map(m => `${m} '${yy}`);
+}
+
+// Anno corrente dell'app (in futuro si potrà espandere)
+const CURRENT_YEAR = new Date().getFullYear();
+// Mesi visibili nell'app = solo i 12 del anno corrente
+const MONTHS = monthsForYear(CURRENT_YEAR);
+
+// Ricava la chiave-mese da una stringa data "YYYY-MM-DD"
+// Restituisce la chiave corrispondente in MONTHS, o null se fuori range
+function monthKeyFromDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d)) return null;
+  const year = d.getFullYear();
+  const monthIdx = d.getMonth(); // 0-based
+  return `${MONTH_NAMES[monthIdx]} '${String(year).slice(-2)}`;
+}
+
 const CATEGORIES = ["Sopravvivenza","Optional","Cultura","Extra"];
 const RIMANENZA_LABEL = "Rimanenza mese precedente";
 
@@ -30,7 +54,7 @@ const TABS = [
 ];
 
 const INITIAL_DATA = {
-  Febbraio: {
+  [`Febbraio '${String(CURRENT_YEAR).slice(-2)}`]: {
     entrate:     [{ id:1, data:"2024-02-01", voce:"Stipendio", importo:3314.07 }],
     usciteFisse: [
       { id:1, voce:"Affitto/mutuo", importo:550 },
@@ -75,6 +99,7 @@ function loadData() {
     const saved = localStorage.getItem("akibo_data");
     if (saved) {
       const d = JSON.parse(saved);
+      // Assicura che esistano tutti i mesi dell'anno corrente
       MONTHS.forEach(m => { if (!d[m]) d[m] = emptyMonth(); });
       return d;
     }
@@ -253,8 +278,8 @@ function Toast({ msg }) {
 }
 
 // ─── Modale ──────────────────────────────────────────────────────────────────
-function Modal({ type, presetCat, confirmPrelievo, budgetDisp, totVar, cassaTotale, onClose, onSaveTx, onConfirmPrelievo, onSaveEntrata, onSaveFissa }) {
-  const [form, setForm] = useState({ categoria: presetCat || "Sopravvivenza", voce:"", importo:"", data:"", settimana:null });
+function Modal({ type, presetCat, currentMonth, confirmPrelievo, budgetDisp, totVar, cassaTotale, onClose, onSaveTx, onConfirmPrelievo, onSaveEntrata, onSaveFissa }) {
+  const [form, setForm] = useState({ categoria: presetCat || "Sopravvivenza", voce:"", importo:"", data:"", settimana:null, currentMonth });
   const set = k => v => setForm(f => ({ ...f, [k]:v }));
 
   const warn = form.importo && (budgetDisp - totVar - parseFloat(form.importo || 0)) < 0;
@@ -279,6 +304,8 @@ function Modal({ type, presetCat, confirmPrelievo, budgetDisp, totVar, cassaTota
   }
 
   if (type === "tx") {
+    const detectedMonth = monthKeyFromDate(form.data);
+    const differentMonth = detectedMonth && MONTHS.includes(detectedMonth) && detectedMonth !== form.currentMonth;
     return (
       <ModalShell onClose={onClose} title="✨ Nuova spesa">
         <Field label="Cosa hai comprato?" placeholder="es. Supermercato" value={form.voce} onChange={set("voce")}/>
@@ -301,7 +328,12 @@ function Modal({ type, presetCat, confirmPrelievo, budgetDisp, totVar, cassaTota
             )}
           </div>
         </div>
-        {warn && <div style={{ background:"#FDECEA", border:`1.5px solid #FA6868`, borderRadius:10, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#C0392B", fontWeight:700 }}>⚠️ Supera il budget! Dovrai prelevare dal salvadanaio.</div>}
+        {differentMonth && (
+          <div style={{ background:"#EEF7EC", border:`1.5px solid #84B179`, borderRadius:10, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#4A7A3A", fontWeight:700 }}>
+            📅 Verrà salvata in <b>{detectedMonth}</b>
+          </div>
+        )}
+        {warn && !differentMonth && <div style={{ background:"#FDECEA", border:`1.5px solid #FA6868`, borderRadius:10, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#C0392B", fontWeight:700 }}>⚠️ Supera il budget! Dovrai prelevare dal salvadanaio.</div>}
         <div style={{ display:"flex", gap:9, justifyContent:"flex-end", marginTop:6 }}>
           <Btn ghost onClick={onClose}>Annulla</Btn>
           <Btn bg={C.navy} col="#fff" onClick={() => onSaveTx(form)}>💾 Salva</Btn>
@@ -311,11 +343,18 @@ function Modal({ type, presetCat, confirmPrelievo, budgetDisp, totVar, cassaTota
   }
 
   if (type === "entrata") {
+    const detectedMonth = monthKeyFromDate(form.data);
+    const differentMonth = detectedMonth && MONTHS.includes(detectedMonth) && detectedMonth !== form.currentMonth;
     return (
       <ModalShell onClose={onClose} title="💰 Nuova entrata">
         <Field label="Voce" placeholder="es. Stipendio" value={form.voce} onChange={set("voce")}/>
         <Field label="Importo" type="number" placeholder="0,00" value={form.importo} onChange={set("importo")}/>
-        <Field label="Data" type="date" value={form.data} onChange={set("data")}/>
+        <Field label="Data" type="date" value={form.data} onChange={v => setForm(f => ({ ...f, data:v }))}/>
+        {differentMonth && (
+          <div style={{ background:"#EEF7EC", border:`1.5px solid #84B179`, borderRadius:10, padding:"8px 12px", marginBottom:12, fontSize:12, color:"#4A7A3A", fontWeight:700 }}>
+            📅 Verrà salvata in <b>{detectedMonth}</b>
+          </div>
+        )}
         <div style={{ display:"flex", gap:9, justifyContent:"flex-end", marginTop:6 }}>
           <Btn ghost onClick={onClose}>Annulla</Btn>
           <Btn bg="#4A7A3A" col="#fff" onClick={() => onSaveEntrata(form)}>💾 Salva</Btn>
@@ -383,7 +422,10 @@ function Btn({ children, bg, col, ghost, onClick, style = {} }) {
 // ─── App Principale ───────────────────────────────────────────────────────────
 export default function App() {
   const [data, setData]   = useState(() => loadData());
-  const [month, setMonth] = useState(() => MONTHS[new Date().getMonth()] || "Gennaio");
+  const [month, setMonth] = useState(() => {
+    const idx = new Date().getMonth();
+    return MONTHS[idx] || MONTHS[0];
+  });
   const [tab, setTab]     = useState("home");
   const [modal, setModal] = useState(null); // { type, presetCat }
   const [confirmPrelievo, setConfirmPrelievo] = useState(null);
@@ -438,67 +480,91 @@ export default function App() {
   }, [data, stats]);
 
   // ─── Handlers dati ──
-  function updateData(fn) {
+  function updateData(fn, targetMonth) {
+    const m = targetMonth || month;
     setData(prev => {
-      const next = { ...prev, [month]: { ...prev[month] } };
-      fn(next);
+      const next = { ...prev, [m]: { ...prev[m] } };
+      fn(next, m);
       return next;
     });
   }
 
+  // Ricava il mese target da una data inserita nel form.
+  // Se la data è valida e il mese è nei MONTHS visibili, usa quello.
+  // Altrimenti fallback al mese correntemente visualizzato.
+  function targetMonthFromForm(form) {
+    const key = monthKeyFromDate(form.data);
+    if (key && MONTHS.includes(key)) return key;
+    return month;
+  }
+
   function handleSaveTx(form) {
     const importo = parseFloat(parseFloat(form.importo).toFixed(2));
-    const nr = parseFloat((ms.budgetDisp - ms.totVar - importo).toFixed(2));
+    const target = targetMonthFromForm(form);
+    // Per il check budget usiamo sempre il mese target
+    const msTarget = stats[target];
+    const cassaTarget = getCassaInfo(data, target).totale;
+    const nr = parseFloat((msTarget.budgetDisp - msTarget.totVar - importo).toFixed(2));
     if (nr < 0) {
       const mancante = Math.abs(nr);
-      if (cassaTotale < mancante) { showToast("Fondi insufficienti!"); return; }
-      setConfirmPrelievo({ importoSpesa: importo, mancante: parseFloat(mancante.toFixed(2)) });
+      if (cassaTarget < mancante) { showToast("Fondi insufficienti!"); return; }
+      setConfirmPrelievo({ importoSpesa: importo, mancante: parseFloat(mancante.toFixed(2)), targetMonth: target });
       setPendingTxForm(form);
       return;
     }
-    updateData(d => {
-      d[month].transazioni.push({
+    updateData((d, m) => {
+      d[m].transazioni.push({
         id: Date.now(), data: form.data || "", voce: form.voce, importo,
         categoria: form.categoria || "Sopravvivenza", settimana: form.settimana || 1,
       });
-    });
+    }, target);
     setModal(null);
+    if (target !== month) showToast(`Spesa salvata in ${target} ✓`);
   }
 
   function handleConfirmPrelievo() {
     if (!confirmPrelievo || !pendingTxForm) return;
-    updateData(d => {
-      d[month].transazioni.push({
+    const target = confirmPrelievo.targetMonth || month;
+    updateData((d, m) => {
+      d[m].transazioni.push({
         id: Date.now(), data: pendingTxForm.data || "", voce: pendingTxForm.voce,
         importo: confirmPrelievo.importoSpesa,
         categoria: pendingTxForm.categoria || "Sopravvivenza",
         settimana: pendingTxForm.settimana || 1,
       });
-      d[month].cassaforte = parseFloat(Math.max(0, Number(d[month].cassaforte || 0) - confirmPrelievo.mancante).toFixed(2));
-    });
+      d[m].cassaforte = parseFloat(Math.max(0, Number(d[m].cassaforte || 0) - confirmPrelievo.mancante).toFixed(2));
+    }, target);
     setConfirmPrelievo(null); setPendingTxForm(null); setModal(null);
     showToast("Prelevato dal salvadanaio 🐷");
   }
 
   function handleSaveEntrata(form) {
     if (!form.voce || !form.importo) return;
-    updateData(d => { d[month].entrate.push({ id:Date.now(), data:form.data||"", voce:form.voce, importo:parseFloat(form.importo) }); });
+    const target = targetMonthFromForm(form);
+    updateData((d, m) => {
+      d[m].entrate.push({ id:Date.now(), data:form.data||"", voce:form.voce, importo:parseFloat(form.importo) });
+    }, target);
     setModal(null);
+    if (target !== month) showToast(`Entrata salvata in ${target} ✓`);
   }
 
   function handleSaveFissa(form) {
     if (!form.voce || !form.importo) return;
-    updateData(d => { d[month].usciteFisse.push({ id:Date.now(), voce:form.voce, importo:parseFloat(form.importo) }); });
+    const target = targetMonthFromForm(form);
+    updateData((d, m) => {
+      d[m].usciteFisse.push({ id:Date.now(), voce:form.voce, importo:parseFloat(form.importo) });
+    }, target);
     setModal(null);
+    if (target !== month) showToast(`Uscita fissa salvata in ${target} ✓`);
   }
 
-  function handleDelTx(id)  { updateData(d => { d[month].transazioni = d[month].transazioni.filter(t => t.id !== id); }); }
+  function handleDelTx(id)  { updateData((d, m) => { d[m].transazioni = d[m].transazioni.filter(t => t.id !== id); }); }
   function handleDelIn(id)  {
     const e = mdRaw.entrate.find(e => e.id === id);
     if (e?.auto) { showToast("La rimanenza è automatica"); return; }
-    updateData(d => { d[month].entrate = d[month].entrate.filter(t => t.id !== id); });
+    updateData((d, m) => { d[m].entrate = d[m].entrate.filter(t => t.id !== id); });
   }
-  function handleDelFix(id) { updateData(d => { d[month].usciteFisse = d[month].usciteFisse.filter(t => t.id !== id); }); }
+  function handleDelFix(id) { updateData((d, m) => { d[m].usciteFisse = d[m].usciteFisse.filter(t => t.id !== id); }); }
 
   function handleCassaInput(e) {
     if (e.key !== "Enter") return;
@@ -508,7 +574,7 @@ export default function App() {
     const nuovo = parseFloat((Number(mdRaw.cassaforte || 0) + v).toFixed(2));
     if (nuovo < 0) { showToast("Il salvadanaio non può essere negativo!"); return; }
     if (nuovo > max) { showToast("Superi il massimo: " + fe(max)); return; }
-    updateData(d => { d[month].cassaforte = nuovo; });
+    updateData((d, m) => { d[m].cassaforte = nuovo; });
     e.target.value = "";
     showToast(v > 0 ? "Aggiunto 🐷" : "Prelevato 🐷");
   }
@@ -542,7 +608,7 @@ export default function App() {
       <div style={{ display:"flex", alignItems:"center", gap:10 }}>
         <select value={month} onChange={e => setMonth(e.target.value)}
           style={{ background:C.navy, color:C.sky, border:"none", borderRadius:12, padding:"6px 12px", fontFamily:"'Nunito',sans-serif", fontWeight:800, fontSize:13, cursor:"pointer", outline:"none" }}>
-          {MONTHS.map(m => <option key={m}>{m}</option>)}
+          {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
         </select>
         <span style={{ fontSize:10, color:C.inkLight, fontWeight:600 }}>
           Budget mensile <b style={{ color:C.navy }}>{fe(ms.budgetDisp)}</b>
@@ -870,6 +936,7 @@ export default function App() {
         <Modal
           type={modal?.type}
           presetCat={modal?.presetCat}
+          currentMonth={month}
           confirmPrelievo={confirmPrelievo}
           budgetDisp={ms.budgetDisp}
           totVar={ms.totVar}
